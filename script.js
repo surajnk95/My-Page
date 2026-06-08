@@ -164,6 +164,7 @@ function initNativeScrollStory() {
 
   let target = 0;
   let frameRequested = false;
+  let lastScrollY = -1;
 
   function render(progress) {
     const p1 = smoothstep(range(progress, 0, 0.2));
@@ -219,24 +220,29 @@ function initNativeScrollStory() {
     target = distance > 0 ? clamp(-rect.top / distance) : 0;
   }
 
+  function renderFromScroll() {
+    updateTarget();
+    render(target);
+  }
+
   function requestRender() {
     if (frameRequested) return;
     frameRequested = true;
     requestAnimationFrame(() => {
       frameRequested = false;
-      updateTarget();
-      render(target);
+      renderFromScroll();
+    });
+  }
+
+  function renderBurst() {
+    [0, 80, 180, 360, 700].forEach((delay) => {
+      window.setTimeout(requestRender, delay);
     });
   }
 
   function start() {
-    updateTarget();
-    render(target);
-    requestAnimationFrame(function loop() {
-      updateTarget();
-      render(target);
-      requestAnimationFrame(loop);
-    });
+    renderFromScroll();
+    renderBurst();
   }
 
   const observer = new IntersectionObserver(
@@ -251,7 +257,15 @@ function initNativeScrollStory() {
   document.querySelectorAll(".reveal").forEach((item) => observer.observe(item));
   window.addEventListener("scroll", requestRender, { passive: true });
   window.addEventListener("resize", requestRender, { passive: true });
-  window.addEventListener("pageshow", requestRender);
+  window.addEventListener("pageshow", renderBurst);
+  window.addEventListener("load", renderBurst);
+  window.setInterval(() => {
+    const nextScrollY = Math.round(window.scrollY);
+    if (nextScrollY !== lastScrollY) {
+      lastScrollY = nextScrollY;
+      renderFromScroll();
+    }
+  }, 120);
   start();
 }
 
@@ -267,6 +281,78 @@ function initForm() {
   });
 }
 
+function initHeroSafetyRenderer() {
+  if (prefersReducedMotion) return;
+
+  const hero = document.querySelector(".hero-scroll");
+  const stage = document.querySelector(".hero-stage");
+  const cameraFrame = document.querySelector(".camera-frame");
+  const cameraLayer = document.querySelector(".camera-layer");
+  const cameraImage = document.querySelector(".camera-img");
+  const heroCopy = document.querySelector(".hero-copy");
+  const scrollCue = document.querySelector(".scroll-cue");
+  const aperture = document.querySelector(".aperture");
+  const portal = document.querySelector(".lens-portal");
+  const shots = [...document.querySelectorAll(".portal-shot")];
+
+  if (!hero || !stage || !cameraFrame) return;
+
+  function draw() {
+    const rect = hero.getBoundingClientRect();
+    const distance = Math.max(1, hero.offsetHeight - window.innerHeight);
+    const progress = clamp(-rect.top / distance);
+    const p1 = smoothstep(range(progress, 0, 0.2));
+    const p2 = smoothstep(range(progress, 0.16, 0.46));
+    const p3 = smoothstep(range(progress, 0.42, 0.78));
+    const fadeOut = smoothstep(range(progress, 0.72, 0.94));
+    const portalIntro = smoothstep(range(progress, 0.24, 0.48));
+    const portalFill = smoothstep(range(progress, 0.46, 0.78));
+    const portalAmount = Math.max(portalIntro * 0.64, portalFill);
+    const scale = mix(1, 1.18, p1) + mix(0, 0.67, p2) + mix(0, 1.85, p3);
+
+    stage.style.setProperty("--iris", `${mix(0, 0.38, p1) + mix(0, 0.44, p2) + mix(0, 0.18, p3)}`);
+    stage.style.setProperty("--portal-opacity", `${portalAmount}`);
+    stage.style.setProperty("--portal-scale", `${mix(0.4, 1.1, portalIntro) + mix(0, 6.5, portalFill)}`);
+    stage.style.setProperty("--portal-blur", `${mix(10, 0, portalFill)}px`);
+    stage.style.opacity = `${1 - smoothstep(range(progress, 0.94, 1))}`;
+
+    cameraFrame.style.transform = `translateY(${mix(0, -18, p3)}px) rotateX(${mix(0, 4, p3)}deg) rotateY(${mix(0, -9, p3)}deg) rotateZ(${mix(0, 1.2, p3)}deg) scale(${scale})`;
+    if (cameraImage) cameraImage.style.filter = `contrast(${mix(1.03, 1.08, p2)}) saturate(${mix(0.96, 1.03, p2)})`;
+    if (cameraLayer) cameraLayer.style.opacity = `${1 - fadeOut}`;
+    if (heroCopy) {
+      heroCopy.style.opacity = `${1 - smoothstep(range(progress, 0.04, 0.22))}`;
+      heroCopy.style.transform = `translateY(${-80 * p1}px) scale(${mix(1, 0.96, p1)})`;
+    }
+    if (scrollCue) {
+      scrollCue.style.opacity = `${1 - smoothstep(range(progress, 0.02, 0.12))}`;
+      scrollCue.style.transform = `translateY(${28 * p1}px)`;
+    }
+    if (aperture) aperture.style.transform = `translate(-50%, -50%) rotate(${22 * p2}deg) scale(${mix(1, 1.08, p2)})`;
+    if (portal) portal.style.opacity = `${portalAmount}`;
+
+    shots.forEach((shot, index) => {
+      const shotProgress = smoothstep(range(progress, 0.34 + index * 0.035, 0.52 + index * 0.035));
+      shot.style.opacity = `${shotProgress}`;
+      shot.style.transform = `translateY(${mix(24, 0, shotProgress)}px) scale(${mix(1.12, 1, shotProgress)})`;
+    });
+  }
+
+  let lastY = -1;
+  function queueDraw() {
+    lastY = Math.round(window.scrollY);
+    draw();
+  }
+
+  window.addEventListener("scroll", queueDraw, { passive: true });
+  window.addEventListener("resize", queueDraw, { passive: true });
+  window.setInterval(() => {
+    const nextY = Math.round(window.scrollY);
+    if (nextY !== lastY) queueDraw();
+  }, 160);
+  draw();
+}
+
 createParticles();
 initScrollStory();
 initForm();
+initHeroSafetyRenderer();
